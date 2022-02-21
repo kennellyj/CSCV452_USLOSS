@@ -7,13 +7,28 @@ typedef struct mbox_proc *mbox_proc_ptr;
 struct mailbox {
    int           mbox_id;
    /* other items as needed... */
+// int           num_slots
+// int           max_slot_size
+// int           slots_used
+// mbox_proc_ptr my_slots
+// mbox_proc_ptr blocked_procs
 };
 
 struct mail_slot {
    int       mbox_id;
    int       status;
    /* other items as needed... */
+// char      message[m]
+// mail_slot slot_ptr* next_slot
+
 };
+
+/*
+struct mbox_proc_ptr {
+   int      pid;
+   mbox_proc_ptr* next_ptr
+}
+*/
 
 struct psr_bits {
     unsigned int cur_mode:1;
