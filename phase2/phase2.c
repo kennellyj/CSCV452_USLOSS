@@ -104,8 +104,31 @@ int MboxCreate(int slots, int slot_size) {
    check_kernel_mode("MboxCreate");
    disableInterrupts(); 
 
-
-
+   /* Check if the slot size is within range*/
+   if ((slot_size < 0) || (slot_size > MAXSLOTS)) {
+      console("Slot size is not valid.\n");
+      return(-1);    
+   }
+   else {
+      /* Iterate through the MailBoxTable*/
+      for (int i = 0; i < MAXMBOX; i++) {
+         // Find a mailbox that is unused
+         if (MailBoxTable[i].status == UNUSED) {
+            MailBoxTable[i].status = USED;
+            MailBoxTable[i].num_slots = slots;
+            MailBoxTable[i].max_slot_size = slot_size;
+            MailBoxTable[i].slots = NULL;
+            MailBoxTable[i].blocked_procs = NULL;
+            // Returns unique mail box ID
+            return(MailBoxTable[i].mbox_id)
+         }
+         else {
+            // If no mailboxes are unused
+            console("No mailboxes are available.\n");
+            return(-1);
+         }
+      }
+   }
 } /* MboxCreate */
 
 
@@ -121,6 +144,28 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size) {
    /* test if in kernel mode & disable interupts */
    check_kernel_mode("MboxSend");
    disableInterrupts(); 
+
+   /* Check if message size is valid*/
+   if ((msg_size < 0) || (msg_size > MAX_MESSAGE)) {
+      console("The message size is not valid.\n");
+      return(-1);     
+   }
+
+      /* Check if the mailbox ID is within range and usable*/
+   if ((mbox_id < 1) || (mbox_id > MAXMBOX) || (MailBoxTable[mbox_id].status == UNUSED)) {
+      console("The message box ID is not valid.\n");
+      return(-1);     
+   }
+   else {
+      if (MailBoxSlots[mbox_id].status == UNUSED) {
+         MailBoxSlots[i].mbox_id = mbox_id;
+         MailBoxSlots[i].status = USED;
+         MailBoxSlots[i].message = memcpy(&);
+      }
+      
+   }
+
+
 
 
 } /* MboxSend */
@@ -151,7 +196,7 @@ int check_io(){
 
 } /* check_io */
 
-<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< FUNCTIONS ADDED >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< FUNCTIONS ADDED >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 /* --------------------------------------------------------------------------------
    Name - check_kernel_mode
@@ -231,18 +276,17 @@ void init_Table(int type) {
    int i = 0;
 
    switch(type) {
-      case 'MAILBOX_TABLE':
+      case MAILBOX_TABLE:
          for (i; i < MAXMBOX; i++) {
-            MailBoxTable[i].mbox_id = -1;
+            MailBoxTable[i].mbox_id = i + 1;
             MailBoxTable[i].status = UNUSED;
             MailBoxTable[i].num_slots = -1;
             MailBoxTable[i].max_slot_size = -1;
-            /* MailBoxTable[i]. */
-            /* MailBoxTable[i]. */
-            /* MailBoxTable[i]. */
+            MailBoxTable[i].slots = NULL;
+            MailBoxTable[i].blocked_procs = NULL;
          }
          break;
-      case 'SLOT_TABLE':
+      case SLOT_TABLE:
          for (i; i < MAXSLOTS; i++) {
             MailBoxSlots[i].mbox_id = -1;
             MailBoxSlots[i].status = UNUSED;
@@ -250,7 +294,7 @@ void init_Table(int type) {
             MailBoxSlots[i].next_slot = NULL;
          }
          break;
-      case 'PROC_TABLE':
+      case PROC_TABLE:
          for (i; i < MAXPROC; i++) {
             Phase2_ProcTable[i].pid = -1;
             Phase2_ProcTable[i].next_ptr = NULL;

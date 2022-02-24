@@ -13,9 +13,8 @@ struct mailbox {
    int           status;
    int           num_slots;
    int           max_slot_size;
-   /* slots; */
-   /* my_slots; */
-   /* blocked_procs; */
+   slot_ptr      slots;
+   mbox_proc_ptr blocked_procs; 
 };
 
 struct mail_slot {
