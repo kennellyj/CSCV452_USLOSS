@@ -114,6 +114,7 @@ int MboxCreate(int slots, int slot_size) {
       for (int i = 0; i < MAXMBOX; i++) {
          // Find a mailbox that is unused
          if (MailBoxTable[i].status == UNUSED) {
+            MailBoxTable[i].mbox_ID = i % MAXMBOX;
             MailBoxTable[i].status = USED;
             MailBoxTable[i].num_slots = slots;
             MailBoxTable[i].max_slot_size = slot_size;
@@ -151,20 +152,27 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size) {
       return(-1);     
    }
 
-      /* Check if the mailbox ID is within range and usable*/
-   if ((mbox_id < 1) || (mbox_id > MAXMBOX) || (MailBoxTable[mbox_id].status == UNUSED)) {
+      /* Check if the mailbox ID is within range */
+   if ((mbox_id < 0) || (mbox_id > MAXMBOX)) {
       console("The message box ID is not valid.\n");
       return(-1);     
    }
-   else {
+
+   /* Check if messages are availabe: if not block process until a message available*/
+      
       if (MailBoxSlots[mbox_id].status == UNUSED) {
          MailBoxSlots[i].mbox_id = mbox_id;
          MailBoxSlots[i].status = USED;
-         MailBoxSlots[i].message = memcpy(&);
+         //MailBoxSlots[i].message
+
       }
       
    }
 
+   /* Need to check for mail slot table overflows*/
+      // If found halt(1)
+
+   /* If conditional send, mail slot table overflow does not halt(1): returns -2 */
 
 
 
@@ -185,7 +193,17 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size) {
    check_kernel_mode("MboxReceive");
    disableInterrupts(); 
 
+   if ((mbox_id < 0) || (mbox_id > MAXMBOX)) {
+      console("The message box ID is not valid.\n");
+      return(-1);      
+   }
+   else {
+      /* check if messages in mailbox*/
+      // use memcpy() on message from slot to receiver's buffer if one or more messages available 
+      // Free mail slot
 
+      /* If no messages in the mailbox: block reciever */
+   }
 
 } /* MboxReceive */
 
@@ -278,7 +296,7 @@ void init_Table(int type) {
    switch(type) {
       case MAILBOX_TABLE:
          for (i; i < MAXMBOX; i++) {
-            MailBoxTable[i].mbox_id = i + 1;
+            MailBoxTable[i].mbox_id = -1;
             MailBoxTable[i].status = UNUSED;
             MailBoxTable[i].num_slots = -1;
             MailBoxTable[i].max_slot_size = -1;
