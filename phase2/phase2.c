@@ -11,15 +11,16 @@
 #include <phase1.h>
 #include <phase2.h>
 #include <usloss.h>
+#include <stdio.h>
 
 #include "message.h"
 
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
 extern int start2 (char *);
-check_kernel_mode(char *func_name);
-enableInterrupts();
-disableInterupts();
+void check_kernel_mode(char *func_name);
+void enableInterrupts();
+void disableInterrupts();
 
 int MboxCreate(int slots, int slot_size);
 int MboxSend(int mbox_id, void *msg_ptr, int msg_size);
@@ -39,7 +40,7 @@ int debugflag2 = 0;
 /* the mail boxes */
 mail_box MailBoxTable[MAXMBOX];
 mail_slot MailBoxSlots[MAXSLOTS];
-mbox_proc Phase2_ProcTable[MAXPROC];
+//mbox_proc *Phase2_ProcTable[MAXPROC];
 
 /* -------------------------- Functions ----------------------------------- */
 
@@ -53,7 +54,9 @@ mbox_proc Phase2_ProcTable[MAXPROC];
    ----------------------------------------------------------------------- */
 int start1(char *arg)
 {
-   int kid_pid, status; 
+   int kid_pid, status;
+   // loop index
+   int i = 0; 
 
    if (DEBUG2 && debugflag2)
       console("start1(): at beginning\n");
@@ -68,14 +71,29 @@ int start1(char *arg)
     * handlers.  Etc... */
 
    // Initialize the process table for phase 2
-   init_Table(PROC_TABLE);
+   /*
+   for (i; i < MAXPROC; i++) {
+   	Phase2_ProcTable[i]->pid = -1;
+        Phase2_ProcTable[i]->next_ptr = NULL;
+   } */
 
    //initialise mailboxtable
-   init_Table(MAILBOX_TABLE);
+   for (i; i < MAXMBOX; i++) {
+   	MailBoxTable[i].mbox_id = -1;
+        MailBoxTable[i].status = UNUSED;
+        MailBoxTable[i].num_slots = -1;
+        MailBoxTable[i].max_slot_size = -1;
+        MailBoxTable[i].slots = NULL;
+        MailBoxTable[i].blocked_procs = NULL;
+   }
 
    //initialise mailbox slots
-   init_Table(SLOT_TABLE);
-
+   for (i; i < MAXSLOTS; i++) {
+   	MailBoxSlots[i].mbox_id = -1;
+        MailBoxSlots[i].status = UNUSED;
+        MailBoxSlots[i].next_slot = NULL;
+   }
+   
    enableInterrupts();
 
    /* Create a process for start2, then block on a join until start2 quits */
@@ -114,14 +132,14 @@ int MboxCreate(int slots, int slot_size) {
       for (int i = 0; i < MAXMBOX; i++) {
          // Find a mailbox that is unused
          if (MailBoxTable[i].status == UNUSED) {
-            MailBoxTable[i].mbox_ID = i % MAXMBOX;
+            MailBoxTable[i].mbox_id = i % MAXMBOX;
             MailBoxTable[i].status = USED;
             MailBoxTable[i].num_slots = slots;
             MailBoxTable[i].max_slot_size = slot_size;
             MailBoxTable[i].slots = NULL;
             MailBoxTable[i].blocked_procs = NULL;
             // Returns unique mail box ID
-            return(MailBoxTable[i].mbox_id)
+            return(MailBoxTable[i].mbox_id);
          }
          else {
             // If no mailboxes are unused
@@ -160,14 +178,15 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size) {
 
    /* Check if messages are availabe: if not block process until a message available*/
       
+      /*
       if (MailBoxSlots[mbox_id].status == UNUSED) {
-         MailBoxSlots[i].mbox_id = mbox_id;
-         MailBoxSlots[i].status = USED;
+         MailBoxSlots[mbox_id].mbox_id = mbox_id;
+         MailBoxSlots[mbox_id].status = USED;
          //MailBoxSlots[i].message
 
       }
       
-   }
+   } */
 
    /* Need to check for mail slot table overflows*/
       // If found halt(1)
@@ -223,11 +242,11 @@ int check_io(){
    Returns - nothing
    Side Effects -  if system is in usermode, print appropriate error and halt.
    -------------------------------------------------------------------------------- */
-static void check_kernel_mode(char *func_name) {
+void check_kernel_mode(char *func_name) {
    union psr_values caller_psr;  /*Holds the caller's PSR values*/
    char buffer[200];
 
-   if (DEBUG && debugflag) {
+   if (DEBUG2 && debugflag2) {
       sprintf(buffer, "check_kernel_mode(): called for function %s\n", func_name);
       console("%s", buffer);
    }
@@ -235,7 +254,6 @@ static void check_kernel_mode(char *func_name) {
    /*test if in kernel mode and halts if in user mode*/
    caller_psr.integer_part = psr_get();
    if(caller_psr.bits.cur_mode == 0) {
-      sprintf(buffer, "%s(): called while in user mode, process %d. Halting...\n", func_name, Current->pid);
       console("%s", buffer);
       halt(1);
    }
@@ -283,44 +301,3 @@ void enableInterrupts() {
    }
 } /* enableInterupts */
 
-/* --------------------------------------------------------------------------------
-   Name - init_Table
-   Purpose - 
-   Parameters - 
-   Returns - 
-   Side Effects - 
-   -------------------------------------------------------------------------------- */
-void init_Table(int type) {
-   int i = 0;
-
-   switch(type) {
-      case MAILBOX_TABLE:
-         for (i; i < MAXMBOX; i++) {
-            MailBoxTable[i].mbox_id = -1;
-            MailBoxTable[i].status = UNUSED;
-            MailBoxTable[i].num_slots = -1;
-            MailBoxTable[i].max_slot_size = -1;
-            MailBoxTable[i].slots = NULL;
-            MailBoxTable[i].blocked_procs = NULL;
-         }
-         break;
-      case SLOT_TABLE:
-         for (i; i < MAXSLOTS; i++) {
-            MailBoxSlots[i].mbox_id = -1;
-            MailBoxSlots[i].status = UNUSED;
-            MailBoxSlots[i].message = NULL;
-            MailBoxSlots[i].next_slot = NULL;
-         }
-         break;
-      case PROC_TABLE:
-         for (i; i < MAXPROC; i++) {
-            Phase2_ProcTable[i].pid = -1;
-            Phase2_ProcTable[i].next_ptr = NULL;
-         }
-         break;
-      default:
-         console("ERROR: table type was not found\n");
-         break;
-      }
-
-} /* init_Table */
