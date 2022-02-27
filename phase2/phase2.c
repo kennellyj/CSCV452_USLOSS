@@ -18,6 +18,7 @@
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
 extern int start2 (char *);
+
 void check_kernel_mode(char *func_name);
 void enableInterrupts();
 void disableInterrupts();
@@ -79,19 +80,19 @@ int start1(char *arg)
 
    //initialise mailboxtable
    for (i; i < MAXMBOX; i++) {
-   	MailBoxTable[i].mbox_id = -1;
-        MailBoxTable[i].status = UNUSED;
-        MailBoxTable[i].num_slots = -1;
-        MailBoxTable[i].max_slot_size = -1;
-        MailBoxTable[i].slots = NULL;
-        MailBoxTable[i].blocked_procs = NULL;
+      MailBoxTable[i].mbox_id = i + 1;
+      MailBoxTable[i].status = UNUSED;
+      MailBoxTable[i].num_slots = -1;
+      MailBoxTable[i].max_slot_size = -1;
+      MailBoxTable[i].slots = NULL;
+      MailBoxTable[i].blocked_procs = NULL;
    }
 
    //initialise mailbox slots
    for (i; i < MAXSLOTS; i++) {
    	MailBoxSlots[i].mbox_id = -1;
-        MailBoxSlots[i].status = UNUSED;
-        MailBoxSlots[i].next_slot = NULL;
+      MailBoxSlots[i].status = UNUSED;
+      MailBoxSlots[i].next_slot = NULL;
    }
    
    enableInterrupts();
@@ -127,12 +128,15 @@ int MboxCreate(int slots, int slot_size) {
       console("Slot size is not valid.\n");
       return(-1);    
    }
+   if ((slots < 0) || (slots > MAXSLOTS)) {
+      console("Slots are not valid.\n");
+      return(-1);         
+   }
    else {
       /* Iterate through the MailBoxTable*/
       for (int i = 0; i < MAXMBOX; i++) {
          // Find a mailbox that is unused
          if (MailBoxTable[i].status == UNUSED) {
-            MailBoxTable[i].mbox_id = i % MAXMBOX;
             MailBoxTable[i].status = USED;
             MailBoxTable[i].num_slots = slots;
             MailBoxTable[i].max_slot_size = slot_size;
@@ -171,7 +175,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size) {
    }
 
       /* Check if the mailbox ID is within range */
-   if ((mbox_id < 0) || (mbox_id > MAXMBOX)) {
+   if ((mbox_id < 1) || (mbox_id > MAXMBOX)) {
       console("The message box ID is not valid.\n");
       return(-1);     
    }
