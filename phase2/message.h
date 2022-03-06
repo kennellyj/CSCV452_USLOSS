@@ -24,7 +24,7 @@ struct mail_slot {
    slot_ptr  next_slot;
 };
 
-struct mbox_proc_ptr {
+struct mbox_proc {
    int           pid;
    mbox_proc_ptr next_ptr;
 };

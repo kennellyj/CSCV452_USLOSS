@@ -17,11 +17,7 @@
 
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
-extern int start2 (char *);
-
-void check_kernel_mode(char *func_name);
-void enableInterrupts();
-void disableInterrupts();
+extern int start2 (char *); 
 
 int MboxCreate(int slots, int slot_size);
 int MboxSend(int mbox_id, void *msg_ptr, int msg_size);
@@ -31,6 +27,16 @@ int MboxRelease(int mbox_id);
 int MboxCondSend(int mbox_id, void *msg_ptr, int msg_size);
 int MboxCondReceive(int mbox_id, void *msg_ptr, int max_msg_size);
 
+void check_kernel_mode(char *func_name);
+void enableInterrupts();
+void disableInterrupts();
+void clock_handler2(int dev, void *punit);
+void disk_handler(int dev, void *punit);
+void terminal_handler(int dev, void *punit);
+void syscall_handler(int dev, void *unit);
+void nullsys(sysargs *args); 
+
+int check_io();
 int waitdevice(int type, int unit, int *status);
 
 
@@ -41,7 +47,16 @@ int debugflag2 = 0;
 /* the mail boxes */
 mail_box MailBoxTable[MAXMBOX];
 mail_slot MailBoxSlots[MAXSLOTS];
-//mbox_proc *Phase2_ProcTable[MAXPROC];
+/* Phase 2 Process Table */
+mbox_proc Phase2_ProcTable[MAXPROC];
+
+// For keeping track of the number of mailboxes used
+int mbox_slots_used = 0;
+
+// Define interrupt vector 
+//void(*int_vec[NUM_INTS])(int dev, void *arg);
+// Define system call vector
+void(*sys_vec[MAXSYSCALLS])(sysargs *args);
 
 /* -------------------------- Functions ----------------------------------- */
 
@@ -57,7 +72,7 @@ int start1(char *arg)
 {
    int kid_pid, status;
    // loop index
-   int i = 0; 
+   int i;
 
    if (DEBUG2 && debugflag2)
       console("start1(): at beginning\n");
@@ -72,27 +87,35 @@ int start1(char *arg)
     * handlers.  Etc... */
 
    // Initialize the process table for phase 2
-   /*
-   for (i; i < MAXPROC; i++) {
-   	Phase2_ProcTable[i]->pid = -1;
-        Phase2_ProcTable[i]->next_ptr = NULL;
-   } */
+   
+   for (i = 0; i < MAXPROC; i++) {
+   	Phase2_ProcTable[i];
+   }
 
    //initialise mailboxtable
-   for (i; i < MAXMBOX; i++) {
-      MailBoxTable[i].mbox_id = i + 1;
+   for (i = 0; i < MAXMBOX; i++) {
+     	MailBoxTable[i].mbox_id = i;
       MailBoxTable[i].status = UNUSED;
-      MailBoxTable[i].num_slots = -1;
-      MailBoxTable[i].max_slot_size = -1;
-      MailBoxTable[i].slots = NULL;
-      MailBoxTable[i].blocked_procs = NULL;
    }
 
    //initialise mailbox slots
-   for (i; i < MAXSLOTS; i++) {
-   	MailBoxSlots[i].mbox_id = -1;
+   for (i = 0; i < MAXSLOTS; i++) {
       MailBoxSlots[i].status = UNUSED;
-      MailBoxSlots[i].next_slot = NULL;
+   }
+
+   /* Initialize clock mailboxe */
+   for (i = 0; i < 7; i++) {
+      MboxCreate(0, MAX_MESSAGE);
+   }
+
+   int_vec[CLOCK_DEV] = clock_handler2;
+   int_vec[DISK_DEV] = disk_handler;
+   int_vec[TERM_DEV] = terminal_handler;
+
+   int_vec[SYSCALL_INT] = syscall_handler;
+
+   for (i = 0; i < MAXSYSCALLS; i++) {
+      sys_vec[i] = nullsys;
    }
    
    enableInterrupts();
@@ -121,37 +144,51 @@ int start1(char *arg)
 int MboxCreate(int slots, int slot_size) {
    /* test if in kernel mode & disable interupts */
    check_kernel_mode("MboxCreate");
-   disableInterrupts(); 
+   disableInterrupts();
+   
+   int m_box_id;
 
    /* Check if the slot size is within range*/
-   if ((slot_size < 0) || (slot_size > MAXSLOTS)) {
-      console("Slot size is not valid.\n");
-      return(-1);    
+   if ((slot_size < 0) || (slot_size > MAX_MESSAGE)) {
+      if (DEBUG2 && debugflag2) {
+         console("Slot size is not valid.\n");
+      }
+      return -1;    
    }
    if ((slots < 0) || (slots > MAXSLOTS)) {
-      console("Slots are not valid.\n");
-      return(-1);         
+      if (DEBUG2 && debugflag2) {
+         console("Slots are not valid.\n");
+      }
+      return -1;         
    }
-   else {
-      /* Iterate through the MailBoxTable*/
-      for (int i = 0; i < MAXMBOX; i++) {
-         // Find a mailbox that is unused
+   // Check if there are available slots
+   if (mbox_slots_used >= MAXMBOX) {
+   	if (DEBUG2 && debugflag2) {
+         console("MboxCreate(): No mailboxes are available\n");
+      }
+      return -1;
+   }
+   /* Iterate through the MailBoxTable*/
+   for (int i = 0; i < MAXMBOX; i++) {
+   	// Find a mailbox that is unused
          if (MailBoxTable[i].status == UNUSED) {
-            MailBoxTable[i].status = USED;
-            MailBoxTable[i].num_slots = slots;
-            MailBoxTable[i].max_slot_size = slot_size;
-            MailBoxTable[i].slots = NULL;
-            MailBoxTable[i].blocked_procs = NULL;
-            // Returns unique mail box ID
-            return(MailBoxTable[i].mbox_id);
-         }
-         else {
-            // If no mailboxes are unused
-            console("No mailboxes are available.\n");
-            return(-1);
-         }
+         m_box_id = i;
+        	mbox_slots_used++;
+        	break;
       }
    }
+  
+   /* Initialize mailbox */
+   MailBoxTable[m_box_id].mbox_id = m_box_id;
+   MailBoxTable[m_box_id].status = USED;
+   MailBoxTable[m_box_id].num_slots = slots;
+   MailBoxTable[m_box_id].max_slot_size = slot_size;
+   MailBoxTable[m_box_id].slots = 0;
+   MailBoxTable[m_box_id].blocked_procs = 0;
+   
+   // Returns unique mail box ID
+   return MailBoxTable[m_box_id].mbox_id;
+   
 } /* MboxCreate */
 
 
@@ -230,10 +267,41 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size) {
 
 } /* MboxReceive */
 
+/* ------------------------------------------------------------------------
+   Name - MboxCondSend
+   Purpose -       
+   Parameters - 
+   Returns - 
+   Side Effects - 
+   ----------------------------------------------------------------------- */
+int MboxCondSend(int mbox_id, void *msg_ptr, int msg_size) {
+   /* test if in kernel mode & disable interupts */
+   check_kernel_mode("MboxCondSend");
+   disableInterrupts(); 
+
+   return 0;
+
+} /* MboxCondSend */
+
+/* ------------------------------------------------------------------------
+   Name - MboxCondReceive
+   Purpose -       
+   Parameters - 
+   Returns - 
+   Side Effects - 
+   ----------------------------------------------------------------------- */
+int MboxCondReceive(int mbox_id, void *msg_ptr, int max_msg_size) {
+   /* test if in kernel mode & disable interupts */
+   check_kernel_mode("MboxCondReceive");
+   disableInterrupts(); 
+
+   return 0;
+} /* MboxCondReceive */
+
 
 int check_io(){
 
-    return 0;
+   return 0;
 
 } /* check_io */
 
@@ -305,3 +373,193 @@ void enableInterrupts() {
    }
 } /* enableInterupts */
 
+/* --------------------------------------------------------------------------------
+   Name - clock_handler2
+   Purpose - 
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+void clock_handler2(int dev, void *punit) {
+   int unit = (int)punit;
+
+   /* Check if the device is the Clock Device */
+   if (dev != CLOCK_DEV) {
+      if (DEBUG2 && debugflag2) {
+         console("clock_handler2(): clock_handler2 called on incorrect device.\n");
+      }
+      return(-1);
+   }
+   /* Check if the units are in correct range */
+   if ((unit < 0) || (unit > CLOCK_UNITS)) {
+      if (DEBUG2 && debugflag2) {
+         console("clock_handler2(): unit is out of range.\n");
+      }
+      return(-1);   
+   }
+
+   /* If device is correct */
+   // variable to keep track of the calls made
+   static int calls = 0;
+   // dummy message used for sending during clock interrupts
+   int msg = 0;
+
+   // add clock_ms to calls (each time = +20)
+   calls = calls + CLOCK_MS;
+
+   // If we have 5 calls calls = 100 this will be true, else keep calling
+   if (calls % 100 == 0) {
+      MboxCondSend(unit, &msg, sizeof(msg));
+   }
+   // call time_slice from phase1
+   time_slice();
+
+} /* clock_handler2 */
+
+/* --------------------------------------------------------------------------------
+   Name - disk_handler
+   Purpose - 
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+void disk_handler(int dev, void *punit) {
+   int status;
+   int result;
+   int unit = (int)punit;
+
+   /* Check if the device is the Disk Device */
+   if (dev != DISK_DEV) {
+      if (DEBUG2 && debugflag2) {
+         console("disk_handler(): disk_handler called on incorrect device.\n");
+      }
+      return -1;
+   }
+   /* Check if the units are in correct range */
+   if ((unit < 0) || (unit > DISK_UNITS)) {
+      if (DEBUG2 && debugflag2) {
+         console("disk_handler(): unit is out of range.\n");
+      }
+      return -1;   
+   }
+   // Read device status register
+   device_input(DISK_DEV, unit, &status);
+   // Conditionally send the contents of status register
+   result = MboxCondSend(unit, &status, sizeof(status));
+   
+} /* disk_handler */
+
+/* --------------------------------------------------------------------------------
+   Name - terminal_handler
+   Purpose - 
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+void terminal_handler(int dev, void *punit) {
+   int status;
+   int result;
+   int unit = (int)punit;
+
+   /* Check if the device is the Disk Device */
+   if (dev != TERM_DEV) {
+      if (DEBUG2 && debugflag2) {
+         console("terminal_handler(): terminal_handler called on incorrect device.\n");
+      }
+      return -1;
+   }
+   /* Check if the units are in correct range */
+   if ((unit < 0) || (unit > TERM_UNITS)) {
+      if (DEBUG2 && debugflag2) {
+         console("disk_handler(): unit is out of range.\n");
+      }
+      return -1;   
+   }
+   // Read device status register
+   device_input(TERM_DEV, unit, &status);
+   // Conditionally send the contents of status register
+   result = MboxCondSend(unit, &status, sizeof(status));
+   
+} /* terminal_handler */
+
+/* --------------------------------------------------------------------------------
+   Name - syscall_handler
+   Purpose - 
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+void syscall_handler(int dev, void *unit) {
+   sysargs *sys_ptr;
+   sys_ptr = (sysargs *) unit;
+
+   /* Check if interrupt is SYSCALL_INT*/
+   if (dev != SYSCALL_INT) {
+      console("syscall_handler(): syscall_handler called on incorrectly. Halting.\n");
+      halt(1);    
+   }
+   /* check if call is in range*/
+   if ((sys_ptr->number < 0) || (sys_ptr->number >MAXSYSCALLS)) {
+      console("syscall_handler(): syscall_handler called on incorrectly. Halting.\n");
+      halt(1);       
+   }
+
+   /* Call appropriate system call handler*/
+   sys_vec[sys_ptr->number](sys_ptr);
+   
+} /* syscall_handler */
+
+/* --------------------------------------------------------------------------------
+   Name - nullsys
+   Purpose - 
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+void nullsys(sysargs *args) {
+   printf("nullsys: invalid syscall %d. Halting...\n", args->number);
+   halt(1);
+} /* nullsys */
+
+/* --------------------------------------------------------------------------------
+   Name - waitdevice
+   Purpose - 
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+int waitdevice(int type, int unit, int *status) {
+   int result = 0;
+
+   /* Check if an existing type is being used */
+   if ((type != DISK_DEV) && (type != CLOCK_DEV) && (type != TERM_DEV)) {
+      if (DEBUG2 && debugflag2) {
+         console("waitdevice(): incorrect type. Halting..\n");
+      }
+      halt(1);     
+   }
+   
+   switch (type) {
+   case DISK_DEV:
+      result = MboxReceive(unit, status, sizeof(int));
+      break;
+   case CLOCK_DEV:
+      result = MboxReceive(unit, status, sizeof(int));
+      break;
+   case TERM_DEV:
+      result = MboxReceive(unit, status, sizeof(int));
+      break;
+   default:
+      printf("waitdevice(): bad type (%d). Halting...\n", type);
+      break;
+   }
+
+   if (result == -3) {
+      /* we were zapped */
+      return(-1);
+   }
+   else {
+      return 0;
+   }
+
+} /* waitdevice */
