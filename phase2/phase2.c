@@ -36,6 +36,13 @@ void terminal_handler(int dev, void *punit);
 void syscall_handler(int dev, void *unit);
 void nullsys(sysargs *args); 
 
+int get_slot_index();
+slot_ptr init_slot(int slot_index, int mbox_id, void *msg_ptr, int msg_size);
+int add_slot_list(slot_ptr added_slot, mboxPtr mbox_ptr);
+
+int block_sendlist();
+int block_recvlist();
+
 int check_io();
 int waitdevice(int type, int unit, int *status);
 
@@ -217,24 +224,52 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size) {
       return(-1);     
    }
 
-   /* Check if messages are availabe: if not block process until a message available*/
-      
-      /*
-      if (MailBoxSlots[mbox_id].status == UNUSED) {
-         MailBoxSlots[mbox_id].mbox_id = mbox_id;
-         MailBoxSlots[mbox_id].status = USED;
-         //MailBoxSlots[i].message
+   // pointer to Mbox
+   mboxPtr mbox_ptr = &MailBoxTable[mbox_id];
 
-      }
-      
-   } */
+   /* Check if messages are availabe: if not block process until a message available*/
+   if (mbox_ptr->num_slots != 0 && msg_size > mbox_ptr->max_slot_size)
+   {
+      enableInterrupts();
+      return -1;
+   }
+
+   Phase2_ProcTable[pid % MAXPROC].pid = pid;
+   Phase2_ProcTable[pid % MAXPROC].status = ACTIVE;
+   Phase2_ProcTable[pid % MAXPROC].message = msg_ptr;
+   Phase2_ProcTable[pid % MAXPROC].msgSize = msg_size;
+
+   //block and adds to block_sendlist
+   block_sendlist();
+
+   /* -----------------------------------------------------
+     check the process to see if on receive block list,
+     if so, copy the message to the receive process buffer
+   ------------------------------------------------------- */
+   
+   block_recvlist();
+     
 
    /* Need to check for mail slot table overflows*/
-      // If found halt(1)
+   int slot = get_slot_index();
+   // If found halt(1)
+   if (slot == -2)
+   {
+      console("MboxSend(): No slots in system. Halting...\n");
+      halt(1);
+   }
+      
 
    /* If conditional send, mail slot table overflow does not halt(1): returns -2 */
 
+   // initialize the slot
+   slot_ptr added_slot = init_slot(slot, mbox_ptr->mbox_id, msg_ptr, msg_size);
 
+   //places slot into slotlist
+   add_slot_list(added_slot, mbox_ptr);
+
+   enableInterrupts();
+   return is_zapped();
 
 } /* MboxSend */
 
@@ -267,6 +302,19 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size) {
 
 } /* MboxReceive */
 
+/* ------------------------------------------------------------------------
+   Name - MboxRelease
+   Purpose - Releases the MBOX, alerts any blocked processess waiting on MBOX
+   Parameters - Mbox_id
+   Returns - 0, -1, -3
+   Side Effects - zeros Mbox and laerts blocke procs
+   ----------------------------------------------------------------------- */
+int MboxRelease(int mbox_id)
+{
+   check_kernel_mode("MboxRelease");
+   disableInterrupts();
+
+}
 /* ------------------------------------------------------------------------
    Name - MboxCondSend
    Purpose -       
@@ -563,3 +611,131 @@ int waitdevice(int type, int unit, int *status) {
    }
 
 } /* waitdevice */
+
+/* --------------------------------------------------------------------------------
+   Name - get_slot_index
+   Purpose - to return the index of the next avaiable slot from the slot array
+   Parameters - none
+   Returns - -2 if no slot is avaliable
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+int get_slot_index()
+{
+   for (int i = 0; i < MAXSLOTS; i++)
+   {
+      if (MailBoxSlots[i].status == EMPTY)
+      {
+         return i;
+      }
+   }
+   return -2;
+}
+
+/* --------------------------------------------------------------------------------
+   Name - init_slot
+   Purpose -  initializes a new slot in the slot table
+   Parameters - slot_index, mBox_id, msg_ptr, msg_size
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+slot_ptr init_slot(int slot_index, int mbox_id, void *msg_ptr, int msg_size)
+{
+   MailBoxSlots[slot_index].mbox_id = mbox_id;
+   MailBoxSlots[slot_index].status = USED;
+   memcpy(MailBoxSlots[slot_index].message, msg_ptr, msg_size);
+   MailBoxSlots[slot_index].msgSize = msg_size;
+   return &MailBoxSlots[slot_index];
+}
+
+/* --------------------------------------------------------------------------------
+   Name - add_slot_list
+   Purpose - adds a Mbox slot to the slot list of a Mbox
+   Parameters - added_slot, mbox_ptr
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+   int add_slot_list(slot_ptr added_slot, mboxPtr mbox_ptr)
+   {
+      slot_ptr head = mbox_ptr->slots;
+      if (head == NULL)
+      {
+         mbox_ptr->slots = added_slot;
+
+      }
+      else
+      {
+         while (head->next_slot != NULL)
+         {
+            head = head->next_slot;
+         }
+         head->next_slot = added_slot;
+      }
+      return ++mbox_ptr->mbox_slots_used;
+   }
+
+/* --------------------------------------------------------------------------------
+   Name - block_sendlist
+   Purpose - adds to the next Block send list
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+int block_sendlist()
+{
+   if (mbox_ptr->num_slots <= mbox_ptr->mbox_used_slots && mbox_ptr->block_recvlist == NULL)
+   {
+      if (mbox_ptr->block_sendlist == NULL)
+      {
+         mbox_ptr->block_sendlist = &Phase2_ProcTable[pid % MAXPROC];
+      }
+      else
+      {
+         mbox_proc_ptr temp = mbox_ptr->block_sendlist;
+         while (temp->next_ptr != NULL)
+         {
+            temp = temp->next_ptr;
+         }
+         temp->next_ptr = &Phase2_ProcTable[pid % MAXPROC];
+      }
+      block_me();
+      if(Phase2_ProcTable[pid % MAXPROC].mboxReleased)
+      {
+         enableInterrupts();
+         return -3;
+
+      }
+      return is_zapped();
+   }
+}
+
+/* --------------------------------------------------------------------------------
+   Name - block_recvlist
+   Purpose - checks if process is on the recv blocked list
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+int block_recvlist()
+{
+   if (mbox_ptr->block_recvlist != NULL)
+   {
+      //msg_size is bigger than receieve buffer size, unblock
+      if (msg_size > mbox_ptr->block_recvlist->msgSize)
+      {
+         mbox_ptr->block_recvlist->status = FAILED;
+         int pid = mbox_ptr->block_recvlist->pid;
+         mbox_ptr->block_recvlist = mbox_ptr->block_recvlist->next_ptr;
+         unblock_proc(pid);
+         enableInterrupts();
+         return -1;
+      }
+
+      // now copy the message to receieve process buffer
+      memcpy(mbox_ptr->block_recvlist->message, msg_ptr, msg_size);
+      mbox_ptr->block_recvlist->msgSize = msg_size;
+      int recvPid = mbox_ptr->block_recvlist->next_ptr;
+      unblock_proc(recvpid);
+      enableInterrupts();
+      return is_zapped();
+   }
+}
