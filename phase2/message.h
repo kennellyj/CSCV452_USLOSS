@@ -1,5 +1,11 @@
 #define DEBUG2 1
 
+#define ACTIVE 2
+#define FAILED 3
+
+#define SEND_BLOCK 101
+#define RECV_BLOCK 102
+
 typedef struct mailbox mail_box;
 typedef struct mailbox *mboxPtr;
 
@@ -16,7 +22,9 @@ struct mailbox {
    int           max_slot_size;
    int           mbox_slots_used;
    slot_ptr      slots;
-   mbox_proc_ptr blocked_procs; 
+   mbox_proc_ptr blocked_procs;
+   mbox_proc_ptr block_sendlist;
+   mbox_proc_ptr block_recvlist;
 };
 
 struct mail_slot {
@@ -31,6 +39,7 @@ struct mbox_proc {
    int           pid;
    int           status;
    int           msgSize;
+   int           mbox_release;
    mbox_proc_ptr next_block_send;
    mbox_proc_ptr next_block_recv;
    mbox_proc_ptr next_ptr;

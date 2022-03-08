@@ -42,6 +42,7 @@ int add_slot_list(slot_ptr added_slot, mboxPtr mbox_ptr);
 
 int block_sendlist();
 int block_recvlist();
+int recv_proc_block_list();
 
 int check_io();
 int waitdevice(int type, int unit, int *status);
@@ -108,6 +109,7 @@ int start1(char *arg)
    //initialise mailbox slots
    for (i = 0; i < MAXSLOTS; i++) {
       MailBoxSlots[i].status = UNUSED;
+      MailBoxSlots[i].slot_id = i;
    }
 
    /* Initialize clock mailboxe */
@@ -234,6 +236,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size) {
       return -1;
    }
 
+   int pid = getpid();
    Phase2_ProcTable[pid % MAXPROC].pid = pid;
    Phase2_ProcTable[pid % MAXPROC].status = ACTIVE;
    Phase2_ProcTable[pid % MAXPROC].message = msg_ptr;
@@ -292,14 +295,90 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size) {
       console("The message box ID is not valid.\n");
       return(-1);      
    }
-   else {
-      /* check if messages in mailbox*/
-      // use memcpy() on message from slot to receiver's buffer if one or more messages available 
-      // Free mail slot
 
-      /* If no messages in the mailbox: block reciever */
+      /* check if messages in mailbox*/
+   if (MAX_MESSAGE < 0)
+   {
+      enableInterrupts();
+      return -1;
    }
 
+   //mailbox pointer
+   mboxPtr mbox_ptr = &MailBoxTable[mboxid];
+
+   // add to the process table
+   int pid = getpid();
+   Phase2_ProcTable[pid % MAXPROC].pid = pid;
+   Phase2_ProcTable[pid % MAXPROC].status = ACTIVE;
+   Phase2_ProcTable[pid % MAXPROC].message = msg_ptr;
+   Phase2_ProcTable[pid % MAXPROC].msgSize = MAX_MESSAGE;
+
+   //slots pointer
+   slot_ptr slotPtr = mbox_ptr->slots;
+
+   if (slot_ptr == NULL)
+   {
+      // add receive process to own blocked receive list
+      int recv_proc_block_list();
+   
+
+      block_me(RECV_BLOCK);
+
+      if(Phase2_ProcTable[pid % MAXPROC].mbox_release || is_zapped())
+      {
+         enableInterrupts();
+         return -3;
+      }
+
+      if (Phase2_ProcTable[pid % MAXPROC].status == FAILED)
+      {
+         enableInterrupts();
+         return -1;
+      }
+      enableInterrupts();
+      return Phase2_ProcTable[pid % MAXPROC].msg_size;
+
+      // use memcpy() on message from slot to receiver's buffer if one or more messages available 
+   }
+   else
+   {
+
+      if slotPtr->msg_size > MAX_MESSAGE
+      {
+         enableInterrupts();
+         return -1;
+      }
+
+      memcpy(msg_ptr, slotPtr->message, slotPtr->msg_size);
+      mbox_ptr->slots = slotPtr->next_slot;
+      int msgSize = slotPtr->msg_size;
+
+
+   // Free mail slot
+   MailBoxSlots[i].status = EMPTY;
+   MailBoxSlots[i].next_slot = NULL;
+   MailBoxSlots[i].mbox_id = -1;
+   mbox_ptr->num_slots --;
+
+      /* If no messages in the mailbox: block reciever */
+      if (mbox_ptr->block_sendlist != NULL)
+      {
+         int slot_index = get_slot_index();
+
+         slot_ptr new_slot = init_slot(slot_index, mbox_ptr->mbox_id, 
+                                       mbox_ptr->block_sendlist->message,
+                                       mbox_ptr->block_sendlist->msg_size);
+         add_slot_list(new_slot, mbox_ptr);
+
+         int pid = mbox_ptr->block_sendlist->pid;
+         mbox_ptr->block_sendlist = mbox_ptr->block_sendlist->next_block_send;
+         unblock_proc(pid);
+
+      }
+
+      enableInterrupts();
+      return iz_zapped();
+   }
 } /* MboxReceive */
 
 /* ------------------------------------------------------------------------
@@ -613,6 +692,30 @@ int waitdevice(int type, int unit, int *status) {
 } /* waitdevice */
 
 /* --------------------------------------------------------------------------------
+   Name - zero_mbox
+   Purpose - zeros all the elements of the mailbox ID
+   Parameters - mbox_id
+   Returns - 
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------------
+   Name - zero_slot
+   Purpose - 
+   Parameters - slot_id
+   Returns - 
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------------
+   Name - zero_mbox_slot
+   Purpose - to return the index of the next avaiable slot from the slot array
+   Parameters - none
+   Returns - -2 if no slot is avaliable
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------------
    Name - get_slot_index
    Purpose - to return the index of the next avaiable slot from the slot array
    Parameters - none
@@ -691,13 +794,13 @@ int block_sendlist()
       else
       {
          mbox_proc_ptr temp = mbox_ptr->block_sendlist;
-         while (temp->next_ptr != NULL)
+         while (temp->next_block_send != NULL)
          {
-            temp = temp->next_ptr;
+            temp = temp->next_block_send;
          }
-         temp->next_ptr = &Phase2_ProcTable[pid % MAXPROC];
+         temp->next_block_send = &Phase2_ProcTable[pid % MAXPROC];
       }
-      block_me();
+      block_me(SEND_BLOCK);
       if(Phase2_ProcTable[pid % MAXPROC].mboxReleased)
       {
          enableInterrupts();
@@ -733,9 +836,36 @@ int block_recvlist()
       // now copy the message to receieve process buffer
       memcpy(mbox_ptr->block_recvlist->message, msg_ptr, msg_size);
       mbox_ptr->block_recvlist->msgSize = msg_size;
+
       int recvPid = mbox_ptr->block_recvlist->next_ptr;
       unblock_proc(recvpid);
       enableInterrupts();
       return is_zapped();
+   }
+}
+
+/* --------------------------------------------------------------------------------
+   Name - recv_proc_block_list
+   Purpose - adds receive process to own blocked receive list
+   Parameters - 
+   Returns - n
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+int recv_proc_block_list
+{
+   if (mbox_ptr->block_recvlist == NULL)
+   {
+      mbox_ptr->block_recvlist = &Phase2_ProcTable[pid % MAXPROC];
+
+   }
+   else
+   {
+      mbox_proc_ptr temp = mbox_proc->block_recvlist;
+
+      while (temp->next_block_recv != NULL)
+      {
+         temp = temp->next_block_recv;
+      }
+      temp->next_block_recv = &Phase2_ProcTable[pid % MAXPROC];
    }
 }
