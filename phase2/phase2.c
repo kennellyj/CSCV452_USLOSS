@@ -98,7 +98,6 @@ int start1(char *arg)
    // Initialize the process table for phase 2
    
    for (i = 0; i < MAXPROC; i++) {
-   	Phase2_ProcTable[i];
       zero_mbox_slot(i);
    }
 
