@@ -453,7 +453,58 @@ int MboxRelease(int mbox_id)
    check_kernel_mode("MboxRelease");
    disableInterrupts();
 
-}
+   //check to see if the mbox is valid
+   if (mbox_id < 0 || mbox_id >= MAXMBOX)
+   {
+      enableInterrupts();
+      return -1;
+   }
+
+   //check and see if Mbox was created
+   if (MailBoxTable[mbox_id].status == UNUSED)
+   {
+      enableInterrupts();
+      return -1;
+   }
+
+   mboxPtr mbox_ptr = &MailBoxTable[mbox_id];
+
+   //if no blocked procs
+   if (mbox_ptr->block_recvlist == NULL && mbox_ptr->block_sendlist == NULL)
+   {
+      //zero out the MBOX
+      zero_mbox(mbox_id);
+      enableInterrupts();
+
+      return is_zapped();
+   }else{
+      mbox_ptr->status = UNUSED;
+
+      //make all blocked procs (send & recv) release
+      while (mbox_ptr->block_sendlist != NULL)
+      {
+         mbox_ptr->block_sendlist->mbox_release = 1;
+         int pid = mbox_ptr->block_sendlist->pid;
+         mbox_ptr->block_sendlist = mbox_ptr->block_sendlist->next_block_send;
+         unblock_proc(pid);
+         disableInterrupts();
+      }
+      while (mbox_ptr->block_recvlist != NULL;)
+      {
+         mbox_ptr->block_recvlist->mbox_release = 1;
+         int pid = mbox_ptr->block_recvlist->pid;
+         mbox_ptr->block_recvlist = mbox_ptr->block_recvlist->next_block_recv;
+         unblock_proc(pid);
+         disableInterrupts();
+      }
+   }
+
+   //clear the Mbox
+   zero_mbox(mbox_id);
+   enableInterrupts();
+   return is_zapped();
+
+} /* MboxRelease */
 /* ------------------------------------------------------------------------
    Name - MboxCondSend
    Purpose -       
