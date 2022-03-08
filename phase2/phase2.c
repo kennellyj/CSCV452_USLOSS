@@ -12,6 +12,7 @@
 #include <phase2.h>
 #include <usloss.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "message.h"
 
@@ -437,7 +438,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size) {
       }
 
       enableInterrupts();
-      return iz_zapped();
+      return is_zapped();
    }
 } /* MboxReceive */
 
@@ -489,7 +490,7 @@ int MboxRelease(int mbox_id)
          unblock_proc(pid);
          disableInterrupts();
       }
-      while (mbox_ptr->block_recvlist != NULL;)
+      while (mbox_ptr->block_recvlist != NULL)
       {
          mbox_ptr->block_recvlist->mbox_release = 1;
          int pid = mbox_ptr->block_recvlist->pid;

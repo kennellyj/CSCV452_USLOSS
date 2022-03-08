@@ -29,16 +29,18 @@ struct mailbox {
 
 struct mail_slot {
    int       mbox_id;
+   int       slot_id;
    int       status;
    char      message[MAX_MESSAGE];
-   int       msgSize;
+   int       msg_size;
    slot_ptr  next_slot;
 };
 
 struct mbox_proc {
-   int           pid;
+   short           pid;
    int           status;
-   int           msgSize;
+   void         *message;
+   int           msg_size;
    int           mbox_release;
    mbox_proc_ptr next_block_send;
    mbox_proc_ptr next_block_recv;
