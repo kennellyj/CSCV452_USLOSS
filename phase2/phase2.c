@@ -467,6 +467,7 @@ int MboxRelease(int mbox_id)
       return -1;
    }
 
+   //mailbox pointer
    mboxPtr mbox_ptr = &MailBoxTable[mbox_id];
 
    //if no blocked procs
@@ -507,31 +508,165 @@ int MboxRelease(int mbox_id)
 } /* MboxRelease */
 /* ------------------------------------------------------------------------
    Name - MboxCondSend
-   Purpose -       
-   Parameters - 
-   Returns - 
-   Side Effects - 
+   Purpose - Puts message in a slot for indicated MBOX     
+   Parameters - mbox_id, msg_ptr, msg_size
+   Returns - 0, -1, -2, -3
+   Side Effects - none
    ----------------------------------------------------------------------- */
 int MboxCondSend(int mbox_id, void *msg_ptr, int msg_size) {
    /* test if in kernel mode & disable interupts */
    check_kernel_mode("MboxCondSend");
    disableInterrupts(); 
 
+   //check to see if MBOX ID is VALID
+   if (mbox_id > MAXMBOX || mbox_id < 0)
+   {
+      enableInterrupts();
+      return -1;
+   }
+
+   //mailbox pointer
+   mboxPtr mbox_ptr = &MailBoxTable[mbox_id];
+
+   // check to see if recv buffer is big enough
+   if (msg_size > mbox_ptr->max_slot_size)
+   {
+      enableInterrupts();
+      return -1;
+   }
+
+   // add procs to Phase2ProcTable
+   int pid = getpid();
+   Phase2_ProcTable[pid % MAXPROC].pid = pid;
+   Phase2_ProcTable[pid % MAXPROC].status = ACTIVE;
+   Phase2_ProcTable[pid % MAXPROC].message = msg_ptr;
+   Phase2_ProcTable[pid % MAXPROC].msg_size = MAX_MESSAGE;
+
+   //check to see if there is an open mbox slot
+   if (mbox_ptr->num_slots == mbox_ptr->mbox_slots_used)
+   {
+      return -2;
+   }
+
+   // checks to see if proc is on the recv blocked list
+   if (mbox_ptr->block_recvlist != NULL)
+   {
+      if (msg_size > mbox_ptr->block_recvlist->msg_size)
+      {
+         enableInterrupts();
+         return -1;
+      }
+
+      //copy the message in the msg buffer
+      memcpy(mbox_ptr->block_recvlist->message, msg_ptr, msg_size);
+      mbox_ptr->block_recvlist->msg_size = msg_size;
+      int recvPid = mbox_ptr->block_recvlist->pid;
+      mbox_ptr->block_recvlist = mbox_ptr->block_recvlist->next_block_recv;
+      unblock_proc(recvPid);
+
+      enableInterrupts();
+      return is_zapped();
+   }
+
+   //find empty slot in slotTable
+   int slot = get_slot_index();
+   if (slot == -2)
+   {
+      return -2;
+   }
+
+   // initialize slot and add to Mbox slot list
+   slot_ptr added_slot = init_slot(slot, mbox_ptr->mbox_id, msg_ptr, msg_size);
+   add_slot_list(init_slot, mbox_ptr);
+
+   enableInterrupts();
+   return is_zapped();
    return 0;
 
 } /* MboxCondSend */
 
 /* ------------------------------------------------------------------------
    Name - MboxCondReceive
-   Purpose -       
-   Parameters - 
-   Returns - 
-   Side Effects - 
+   Purpose - Gets message from a slot of indicated MBOX    
+   Parameters - mbox_id, msg_ptr, max_msg_size
+   Returns - size of msg, -1, -2, or -3
+   Side Effects - none
    ----------------------------------------------------------------------- */
 int MboxCondReceive(int mbox_id, void *msg_ptr, int max_msg_size) {
    /* test if in kernel mode & disable interupts */
    check_kernel_mode("MboxCondReceive");
    disableInterrupts(); 
+
+
+   // checks to see if MBOX is available
+   if (MailBoxTable[mbox_id].status == UNUSED)
+   {
+      enableInterrupts();
+      return -1;
+   }
+
+   mboxPtr mbox_ptr = &MailBoxTable[mbox_id];
+
+   //checks to see if msg_size = VALID
+   if (max_msg_size < 0)
+   {
+      enableInterrupts();
+      return -1;
+   }
+
+   // add procs to Phase2ProcTable
+   int pid = getpid();
+   Phase2_ProcTable[pid % MAXPROC].pid = pid;
+   Phase2_ProcTable[pid % MAXPROC].status = ACTIVE;
+   Phase2_ProcTable[pid % MAXPROC].message = msg_ptr;
+   Phase2_ProcTable[pid % MAXPROC].msg_size = MAX_MESSAGE;
+
+   slot_ptr slotPtr = mbox_ptr->slots;
+
+   // if no msg in MBOX slot
+   if (slotPtr == NULL)
+   {
+      enableInterrupts();
+      return -2;
+   }else{
+
+      // checks to see msg buffer is big enough
+      if (slotPtr->msg_size > max_msg_size)
+      {
+         enableInterrupts();
+         return -1;
+      }
+
+      // cpoy the message into recv buffer
+      memcpy(msg_ptr, slotPtr->message, slotPtr->msg_size);
+      mbox_ptr->slots = slotPtr->next_slot;
+      int msg_size = slotPtr->msg_size;
+
+      //zero out slot and reduce number of used slots
+      zero_slot(slotPtr->slot_id);
+      mbox_ptr->mbox_slots_used--;
+
+      //checks to see if blocked msg is on sendList
+      if (mbox_ptr->block_sendlist != NULL)
+      {
+         int slot = get_slot_index();
+
+         //init the slot and add to MBOX slot
+         slot_ptr added_slot = init_slot(slot, mbox_ptr->mbox_id, 
+                                         mbox_ptr->block_sendlist->message,
+                                         mbox_ptr->block_sendlist->msg_size);
+         add_slot_list(added_slot, mbox_ptr);
+
+         // update proc and unblock
+         int pid = mbox_ptr->block_sendlist->pid;
+         mbox_ptr->block_sendlist = ptr->block_sendlist->next_block_send;
+         unblock_proc(pid);
+
+      }
+
+      enableInterrupts();
+      return is_zapped();
+   }
 
    return 0;
 } /* MboxCondReceive */
