@@ -640,7 +640,7 @@ int MboxCondReceive(int mbox_id, void *msg_ptr, int max_msg_size) {
       // cpoy the message into recv buffer
       memcpy(msg_ptr, slotPtr->message, slotPtr->msg_size);
       mbox_ptr->slots = slotPtr->next_slot;
-      int msg_size = slotPtr->msg_size;
+      int msgSize = slotPtr->msg_size;
 
       //zero out slot and reduce number of used slots
       zero_slot(slotPtr->slot_id);
@@ -659,7 +659,7 @@ int MboxCondReceive(int mbox_id, void *msg_ptr, int max_msg_size) {
 
          // update proc and unblock
          int pid = mbox_ptr->block_sendlist->pid;
-         mbox_ptr->block_sendlist = ptr->block_sendlist->next_block_send;
+         mbox_ptr->block_sendlist = mbox_ptr->block_sendlist->next_block_send;
          unblock_proc(pid);
 
       }
