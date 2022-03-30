@@ -1,34 +1,32 @@
-/*
- *
- * sems.h
- * 
- *     Justin Kennelly & Carlos Torres
- * CSCV 452 Phase 3
- *
- */
 
+#ifndef PHASE3_HEADER_H_
+#define PHASE3_HEADER_H_
  
- #ifndef PHASE3_HEADER_H_
- #define PHASE3_HEADER_H_
- 
- //structures defs below
+#define DEBUG3 1
 
+#define NULL   0
+#define ACTIVE 1
 
-// procTable status #'s
-#define UNUSED      0
-#define ACTIVE      1
+typedef struct mbox_proc mbox_proc;
+typedef struct mbox_proc *mbox_proc_ptr;
 
+typedef struct sem_proc semaphore;
+typedef struct sem_proc *sem_proc_ptr;
 
-#endif /* PHASE3_HEADER_H_ */
+struct mbox_proc {
+   short         pid;
+   int           status;
+   char         *name;
+   int           numChild;
+   int           mbox_start;
+   char         *start_arg;
+   int          (* start_func)(char *);
+   mbox_proc_ptr parent_ptr;
+   mbox_proc_ptr child_ptr;
+   mbox_proc_ptr sibling_ptr;
+};
 
-typedef struct Phase3ProcTable *ProcTablePtr;
-
-typedef struct Phase3ProcTable{
-    //add more functions here
-    char    name[MAXNAME];
-    short   pid;
-    int     priority;
-    unsigned int    stack_size;
-    int     status;
-    int     mboxID;
-}Phase3ProcTable;
+struct sem_proc {
+    int         status;
+    int         sid;
+}
