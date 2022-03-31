@@ -4,6 +4,7 @@
  
 #define DEBUG3 1
 
+#define ACTIVE 1
 
 typedef struct mbox_proc mbox_proc;
 typedef struct mbox_proc *mbox_proc_ptr;
