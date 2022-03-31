@@ -5,8 +5,9 @@
 #include <phase2.h>
 #include <phase3.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <time.h>
+#include <stdio.h>
 #include "sems.h"
 
 /* ----------------------- PROTOTYPES ------------------------------------------ */
