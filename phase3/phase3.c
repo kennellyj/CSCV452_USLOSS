@@ -79,14 +79,14 @@ int start2(char *arg)
     }
     sys_vec[SYS_SPAWN] = spawn;
     sys_vec[SYS_WAIT] = wait;
-    sys_vec[SYS_TERMINATE] = Terminate;
-    sys_vec[SYS_GETTIMEOFDAY] = GetTimeofDay;
-    sys_vec[SYS_CPUTIME] = CPUTime;
+    sys_vec[SYS_TERMINATE] = terminate;
+    sys_vec[SYS_GETTIMEOFDAY] = gettimeofday;
+    sys_vec[SYS_CPUTIME] = cputime;
     sys_vec[SYS_GETPID] = getPID;
-    sys_vec[SYS_SEMCREATE] = SemCreate;
-    sys_vec[SYS_SEMP] = SemP;
-    sys_vec[SYS_SEMV] = SemV;
-    sys_vec[SYS_SEMFREE] = SemFree;
+    sys_vec[SYS_SEMCREATE] = semcreate;
+    sys_vec[SYS_SEMP] = semp;
+    sys_vec[SYS_SEMV] = semv;
+    sys_vec[SYS_SEMFREE] = semfree;
 
    // initiliaze the Semaphore Table
     for (int i = 0; i < MAXSEMS; i++)

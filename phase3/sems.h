@@ -1,7 +1,4 @@
 
-#ifndef SEMS_H_
-#define SEMS_H_
- 
 #define DEBUG3 1
 
 #define ACTIVE 1
@@ -36,5 +33,3 @@ struct sem_proc {
     int         value;
     int         blocked;
 }
-
-#endif /* SEMS_H */
