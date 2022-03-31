@@ -37,3 +37,5 @@ struct sem_proc {
     int         value;
     int         blocked;
 }
+
+#endif /* PHASE3_HEADER_H */
