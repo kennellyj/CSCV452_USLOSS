@@ -40,7 +40,7 @@ static void semfree(sysargs *args_ptr);
 int  semfree_real(int semaphore);
 
 void check_kernel_mode(char *func_name);
-void nullsys3(sysargs *args_ptr);
+static void nullsys3(sysargs *args_ptr);
 
 void init_procs(int i);
 void init_sems(int i);
