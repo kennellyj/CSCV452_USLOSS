@@ -58,8 +58,7 @@ int numSems = 0;
 int nextSem = 0;
 
 /* -------------------------- FUNCTIONS -------------------------------------------- */
-
-start2(char *arg)
+int start2(char *arg)
 {
     int		pid;
     int		status;
