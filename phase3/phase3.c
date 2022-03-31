@@ -22,33 +22,39 @@ static int spawn_launch(char *arg);
 static void wait(sysargs *args_ptr);
 int wait_real(int *status);
 static void terminate(sysargs *args_ptr);
-void Terminate(int status);
+void terminate_real(int status);
 static void gettimeofday(sysargs *args_ptr);
-int GetTimeofDay();
+int gettimeofday_real();
 static void cputime(sysargs *args_ptr);
-int CPUTime();
+int cputime_real();
 static void getPID(sysargs *args_ptr);
-int GetPID();
+int getPID_real();
 static void semcreate(sysargs *args_ptr);
-int SemCreate(int semaphore);
+int semcreate_real(int semaphore);
 static void semp(sysargs *args_ptr);
-int  SemP(int semaphore);
+int  semp_real(int semaphore);
 static void semv(sysargs *args_ptr);
-int  SemV(int semaphore);
+int  semv_real(int semaphore);
 static void semfree(sysargs *args_ptr);
-int  SemFree(int semaphore);
+int  semfree_real(int semaphore);
 
 void check_kernel_mode(char *func_name);
 void nullsys3(sysargs *args_ptr);
 
 void init_procs(int i);
 void init_sems(int i);
+void addChildList(int parentID, int childID);
+void rmChildList(int parentID, int childID);
+int nextSems();
 
 /****************************GLOBALS***********************************************/
 mbox_proc phase3_ProcTable[MAXPROC];
 semaphore SemTable[MAXSEMS];
 
 int debugflag3 = 0;
+
+int numSems = 0;
+int nextSem = 0;
 
 /* -------------------------- FUNCTIONS -------------------------------------------- */
 
@@ -76,7 +82,7 @@ start2(char *arg)
     sys_vec[SYS_TERMINATE] = Terminate;
     sys_vec[SYS_GETTIMEOFDAY] = GetTimeofDay;
     sys_vec[SYS_CPUTIME] = CPUTime;
-    sys_vec[SYS_GETPID] = GetPid;
+    sys_vec[SYS_GETPID] = getPID;
     sys_vec[SYS_SEMCREATE] = SemCreate;
     sys_vec[SYS_SEMP] = SemP;
     sys_vec[SYS_SEMV] = SemV;
@@ -192,6 +198,7 @@ priority = (int) args_ptr->arg4;
 name = (char*) args_ptr->arg5;
 // more code to extract system call arguments as well as exceptional handling
 
+
 //call another function to modularize the code better
 kid_pid = spawn_real(name, func, arg, stack_size, priority);
 
@@ -295,7 +302,7 @@ static int spawn_launch(char *arg)
                   arg4: -1 if the process has no children, 0 otherwise
         Side Effects - process is blocked if no terminating children
    -------------------------------------------------------------------------------- */
-int Wait(int *pid, int *status) {
+static void wait(sysargs *args_ptr) {
 
 } /* Wait */
 
@@ -317,7 +324,47 @@ int wait_real(int *status) {
         Return  - NONE
         Side Effects - Proc Status is set to UNUSED
    -------------------------------------------------------------------------------- */
-void Terminate(int status) {
+static void terminate(sysargs *args_ptr)
+{
+   // egt quit code from sys args
+   int code = (long) args_ptr->arg1;
+
+   // terminate with the given code
+   terminate_real(code);
+
+   // switch to user mode
+   psr_set(psr_get() & ~PSR_CURRENT_MODE);
+}
+/* --------------------------------------------------------------------------------
+        Name    - terminate_real
+        Purpose - terminate called process and all of its children
+        Parameters - status
+        Return  - NONE
+        Side Effects - Proc Status is set to UNUSED
+   -------------------------------------------------------------------------------- */
+void terminate_real(int status) {
+
+//get the current process
+mbox_proc cur_proc = phase3_ProcTable[getpid() % MAXPROC];
+
+int result = -1;
+
+if (!is_zapped()) {
+   psr_set(psr_get() & ~PSR_CURRENT_MODE);
+
+   int (*func)(char *) = cur_proc.start_func;
+   char arg[MAXARG];
+   strcpy(arg, cur_proc.start_arg);
+
+   result = (func)(arg);
+
+   terminate(result);
+}
+else {
+   terminate_real(0);
+}
+
+return result;
 
 } /* Terminate */
 
@@ -334,11 +381,11 @@ if (debugflag3)
    console("process %d: GetTimeofDay\n", getpid());
 }
 
-long result = GetTimeofDay();
+long result = gettimeofday_real();
 args_ptr->arg1 = (void *) result;
 } /* GetTimeofDay */
 
-int GetTimeofDay(int *tod)
+int gettimeofday_real()
 {
    if (debugflag3)
    {
@@ -359,12 +406,12 @@ if (debugflag3)
    console("process %d: CPUTime\n", getpid());
 }
 
-long result = CPUTime();
+long result = cputime_real();
 args_ptr->arg1 = (void *) result;
 
 }
 
-int CPUTime(int *cpu)
+int cputime_real()
 {
    if (debugflag3)
    {
@@ -388,11 +435,11 @@ if (debugflag3)
    console("process %d: GetPid\n", getpid());
 }
 
-long result = GetPid();
+long result = getPID_real();
 args_ptr->arg1 = (void *) result;
 }
 
-int GetPid()
+int getPID_real()
 {
    if (debugflag3)
    {
@@ -421,7 +468,7 @@ static void semcreate(sysargs *args_ptr) {
    Returns - arg4: -1 if semaphore handle is invalid; 0 otherwise.
    Side Effects -  
    -------------------------------------------------------------------------------- */
-int  SemP(int semaphore) {
+int  semp_real(int semaphore) {
 
 } /* SemP */
 
@@ -432,7 +479,7 @@ int  SemP(int semaphore) {
    Returns - arg4: -1 if semaphore handle is invalid, 0 otherwise.
    Side Effects -  if system is in usermode, print appropriate error and halt.
    -------------------------------------------------------------------------------- */
-int  SemV(int semaphore) {
+int  semv_real(int semaphore) {
 
 } /* SemV */
 
@@ -444,7 +491,7 @@ int  SemV(int semaphore) {
                     1 if there are processes blocked on the semaphore, 0 otherwise.
    Side Effects -  terminate
    -------------------------------------------------------------------------------- */
-int  SemFree(int semaphore) {
+int  semfree_real(int semaphore) {
 
 } /* SemFree */
 
@@ -464,7 +511,11 @@ int  SemFree(int semaphore) {
         phase3_ProcTable[i].parent_ptr = NULL;
         phase3_ProcTable[i].child_ptr = NULL;
         phase3_ProcTable[i].sibling_ptr = NULL;
-
+        phase3_ProcTable[i].start_arg[0] = '\0';
+        phase3_ProcTable[i].priority = -1;
+        phase3_ProcTable[i].start_func = NULL;
+        phase3_ProcTable[i].stack_size = -1;
+        phase3_ProcTable[i].spawnbox = MboxCreate(1, MAXLINE);
         //add more as needed ********
 
    } /* init_procs */
@@ -480,6 +531,92 @@ void init_sems(int i)
 {
    SemTable[i].status = NULL;
    SemTable[i].sid = i;
+   SemTable[i].mutex_box = -1;
+   SemTable[i].value = 0;
+   SemTable[i].blocked = 0;
+   SemTable[i].blocked_box = -1;
 
    //add more as needed ********
+}
+
+/* --------------------------------------------------------------------------------
+   Name - addChildList
+   Purpose - adds child to list
+   Parameters - parentID, child ID
+   Returns - 
+   Side Effects - 
+   -------------------------------------------------------------------------------- */
+void addChildList(int parentID, int childID)
+{
+   //set inputs to align with table
+  parentID %= MAXPROC;
+  childID %= MAXPROC;
+
+   //increase the number of children
+  phase3_ProcTable[parentID].numChild++;
+
+   //if parent has no children, set child as parents child
+  if (phase3_ProcTable[parentID].child_ptr == NULL) {
+     phase3_ProcTable[parentID].child_ptr = &phase3_ProcTable[childID];
+  }
+  // if the parent DOES have chuildren, find last kid and appen child to last's next
+  else {
+     mbox_proc_ptr child;
+     for (child = phase3_ProcTable[parentID].child_ptr; child->sibling_ptr != NULL;
+          child = child->sibling_ptr) {}
+
+      child->sibling_ptr = &phase3_ProcTable[childID];      
+  }
+}
+
+/* --------------------------------------------------------------------------------
+   Name - rmChildList
+   Purpose - removes child from list
+   Parameters - parentID, childID
+   Returns - 
+   Side Effects - 
+-------------------------------------------------------------------------------- */
+void rmChildList(int parentID, int childID)
+{
+      //set inputs that align with proc table
+   int parentRE = parentID % MAXPROC;
+
+   //increase number of children
+   phase3_ProcTable[parentRE].numChild++;
+
+   //find the child and ererence it if the child is parent's first child
+   if (phase3_ProcTable[parentRE].child_ptr->pid == childID) {
+
+      //swap the parent's first with the sibling
+      phase3_ProcTable[parentRE].child_ptr = phase3_ProcTable[parentRE].child_ptr->sibling_ptr;
+
+   }
+   else{
+      mbox_proc_ptr child;
+      for (child = phase3_ProcTable[parentRE].child_ptr; child->sibling_ptr != NULL;
+            child = child->sibling_ptr) {
+               if (child->sibling_ptr->pid == childID) {
+                  child->sibling_ptr = child->sibling_ptr->sibling_ptr;
+                  break;
+               }
+            }
+
+   }
+}
+
+/* --------------------------------------------------------------------------------
+   Name - nextSems
+   Purpose - obtains the next semaphore in the semaphore table
+   Parameters - none
+   Returns - 
+   Side Effects - 
+-------------------------------------------------------------------------------- */
+int nextSems() {
+   while (SemTable[nextSem].mutex_box != -1) {
+      nextSem++;
+      if (nextSem >= MAXSEMS) {
+         nextSem = 0;
+      }
+   }
+   return nextSem;
 }

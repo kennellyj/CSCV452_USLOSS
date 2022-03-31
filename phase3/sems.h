@@ -21,6 +21,9 @@ struct mbox_proc {
    int           mbox_start;
    char         *start_arg;
    int          (* start_func)(char *);
+   unsigned int stack_size;
+   int          priority;
+   int          spawnbox;
    mbox_proc_ptr parent_ptr;
    mbox_proc_ptr child_ptr;
    mbox_proc_ptr sibling_ptr;
@@ -29,4 +32,8 @@ struct mbox_proc {
 struct sem_proc {
     int         status;
     int         sid;
+    int         mutex_box;
+    int         blocked_box;
+    int         value;
+    int         blocked;
 }
