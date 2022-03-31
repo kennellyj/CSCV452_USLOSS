@@ -12,7 +12,7 @@
 
 /* ----------------------- PROTOTYPES ------------------------------------------ */
 
-//int start2(char *);
+int start2(char *);
 extern int start3(char *);
 
 static void spawn(sysargs *args_ptr);
