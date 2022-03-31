@@ -1,11 +1,9 @@
 
-#ifndef PHASE3_HEADER_H_
-#define PHASE3_HEADER_H_
+#ifndef SEMS_H_
+#define SEMS_H_
  
 #define DEBUG3 1
 
-#define NULL   0
-#define ACTIVE 1
 
 typedef struct mbox_proc mbox_proc;
 typedef struct mbox_proc *mbox_proc_ptr;
@@ -38,4 +36,4 @@ struct sem_proc {
     int         blocked;
 }
 
-#endif /* PHASE3_HEADER_H */
+#endif /* SEMS_H */
