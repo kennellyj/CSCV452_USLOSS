@@ -32,4 +32,4 @@ struct sem_proc {
     int         blocked_box;
     int         value;
     int         blocked;
-}
+};
