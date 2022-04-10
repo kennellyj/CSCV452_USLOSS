@@ -11,6 +11,7 @@ typedef struct sem_proc *sem_proc_ptr;
 
 struct mbox_proc {
    short         pid;
+   short         parent_pid;
    int           status;
    char         *name;
    int           numChild;
@@ -26,8 +27,6 @@ struct mbox_proc {
 };
 
 struct sem_proc {
-    int         status;
-    int         sid;
     int         mutex_box;
     int         blocked_box;
     int         value;

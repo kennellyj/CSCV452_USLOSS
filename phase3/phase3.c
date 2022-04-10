@@ -6,13 +6,13 @@
 #include <phase3.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sems.h>
+#include "sems.h"
 #include <time.h>
 #include <stdio.h>
 
 /* ----------------------- PROTOTYPES ------------------------------------------ */
 
-int start2(char *);
+int start2(char *arg);
 extern int start3(char *);
 
 static void spawn(sysargs *args_ptr);
@@ -21,7 +21,7 @@ int spawn_real(char *name, int (*func)(char *), char *arg,
 static int spawn_launch(char *arg);
 
 static void wait(sysargs *args_ptr);
-int wait_real(int *status);
+int wait_real(long *status);
 static void terminate(sysargs *args_ptr);
 void terminate_real(int status);
 static void gettimeofday(sysargs *args_ptr);
@@ -57,11 +57,13 @@ int debugflag3 = 0;
 int numSems = 0;
 int nextSem = 0;
 
+int numProcs = 3;
+
 /* -------------------------- FUNCTIONS -------------------------------------------- */
 int start2(char *arg)
 {
     int		pid;
-    int		status;
+    int status;
     
     /* Check kernel mode */
     check_kernel_mode("start2");
@@ -124,9 +126,13 @@ int start2(char *arg)
      * return to the user code that called Spawn.
      */
     pid = spawn_real("start3", start3, NULL, 4*USLOSS_MIN_STACK, 3);
-    pid = wait_real(&status);
 
-    return 0;
+    if (pid > 0) {
+       pid = wait_real(&status);
+    }
+    
+
+    return status;
 
 } /* start2 */
 
@@ -148,7 +154,7 @@ void check_kernel_mode(char *func_name) {
    }
 
    /*test if in kernel mode and halts if in user mode*/
-   if(psr_get() & PSR_CURRENT_MODE == 0) {
+   if((psr_get() & PSR_CURRENT_MODE) == 0) {
       console("%s", buffer);
       halt(1);
    }
@@ -185,10 +191,20 @@ int stack_size;
 int priority;
 char* name;
 
+numProcs++;
+
+
 if (is_zapped())
 {
    Terminate(0);
 
+}
+
+if (numProcs > MAXPROC) {
+   args_ptr->arg4 = (void *) -1L;
+
+   numProcs--;
+   return;
 }
 
 func = args_ptr->arg1;
@@ -227,23 +243,39 @@ int spawn_real(char *name, int (*func)(char *), char *arg, int stack_size, int p
 
 int kidpid;
 int my_location; /* parent's location in proc table */
-int kid_location; /* child's location in proc table */
-int result;
+/* child's location in proc table */
 //u_proc_ptr kidptr, prevptr;
-
-
-my_location = getpid() % MAXPROC;
 
 /* create our child */
 
 kidpid = fork1(name, spawn_launch, NULL, stack_size, priority);
+
 //more to check the kidpid and put the new process data to the process table
+my_location = kidpid % MAXPROC;
+
+phase3_ProcTable[my_location].pid = kidpid;
+strcpy(phase3_ProcTable[my_location].name, name);
+if (arg != NULL) {
+   strcpy(phase3_ProcTable[my_location].start_arg, arg);
+}
+phase3_ProcTable[my_location].priority = priority;
+phase3_ProcTable[my_location].start_func = func;
+phase3_ProcTable[my_location].stack_size = stack_size;
+phase3_ProcTable[my_location].parent_pid = getpid();
+
+addChildList(getpid(), kidpid);
 
 //Then synchronize with the child using a mailbox
+MboxSend(phase3_ProcTable[my_location].spawnbox, NULL, 0);
 
-result = MboxSend(phase3_ProcTable[kid_location].mbox_start, &my_location, sizeof(int));
+//result = MboxSend(phase3_ProcTable[kid_location].mbox_start, &my_location, sizeof(int));
 
 //more to add
+
+
+if (is_zapped()) {
+   terminate_real(0);
+}
 
 return kidpid;
 
@@ -258,31 +290,38 @@ return kidpid;
    -------------------------------------------------------------------------------- */
 static int spawn_launch(char *arg)
 {
-   int parent_location = 0;
-   int my_location;
+
    int result;
-   int (* start_func)(char *);
-   char *start_arg;
+
    //more to add if you see necessary
 
-   my_location = getpid() % MAXPROC;
+   MboxReceive(phase3_ProcTable[getpid() % MAXPROC].spawnbox, NULL, 0);
+
+   mbox_proc cur_proc = phase3_ProcTable[getpid() % MAXPROC];
+
+   int my_location = getpid() % MAXPROC;
 
    /* Sanity CHeck */
+   result = -1;
 
-   /*Maintain the process table entry, you can add more */
-   phase3_ProcTable[my_location].status = ACTIVE;
-
-   //sybnchronize with the parent here,
+   //synchronize with the parent here,
    //which function to call?
 
    //then get the start function and its argument
 
    if (!is_zapped())
    {
-      //more code if you see necessary 
       //set up user mode
       psr_set(psr_get() & ~PSR_CURRENT_MODE);
-      result = (start_func)(start_arg);
+
+      //more code if you see necessary 
+      int (*func)(char *) = cur_proc.start_func;
+      char arg[MAXARG];
+      strcpy(arg, cur_proc.start_arg);
+
+
+      result = (func)(arg);
+
       Terminate(result);
    }
    else{
@@ -290,7 +329,7 @@ static int spawn_launch(char *arg)
    }
 
    printf("spawn_launch(): should not see this message following Terminate!\n");
-   return 0;
+   return result;
 
 } /* spawn_launch */
 /* --------------------------------------------------------------------------------
@@ -303,17 +342,49 @@ static int spawn_launch(char *arg)
         Side Effects - process is blocked if no terminating children
    -------------------------------------------------------------------------------- */
 static void wait(sysargs *args_ptr) {
+   if (debugflag3) {
+      console("Process %d: wait\n", getpid());
+
+   }
+
+   long code;
+
+   long result = wait_real(&code);
+
+   long success = 0;
+
+   if (result == -2) {
+      success = -1;
+   }
+
+   args_ptr->arg1 = (void *) result;
+   args_ptr->arg2 = (void *) code;
+   args_ptr->arg4 = (void *) success;
+
+   psr_set(psr_get() & ~PSR_CURRENT_MODE);
+
 
 } /* Wait */
 
 /* --------------------------------------------------------------------------------
-   Name - 
+   Name - wait_real
    Purpose - 
    Parameters - 
    Returns - 
    Side Effects - 
    -------------------------------------------------------------------------------- */
-int wait_real(int *status) {
+int wait_real(long *status) {
+   if (debugflag3) {
+      console("Process %d: wait_real\n", getpid());
+   }
+
+   int result = join(status);
+
+   if (is_zapped()) {
+      terminate_real(0);
+   }
+
+   return result;
 
 } /* wait_real */
 
@@ -326,6 +397,11 @@ int wait_real(int *status) {
    -------------------------------------------------------------------------------- */
 static void terminate(sysargs *args_ptr)
 {
+
+   if (debugflag3) {
+      console("process %d: terminate\n", getpid());
+   }
+
    // egt quit code from sys args
    int code = (long) args_ptr->arg1;
 
@@ -347,24 +423,41 @@ void terminate_real(int status) {
 //get the current process
 mbox_proc cur_proc = phase3_ProcTable[getpid() % MAXPROC];
 
-int result = -1;
+// if it has children, get rid oif children
+if (cur_proc.numChild != 0) {
+   int children[MAXPROC];
+   int i = 0;
+   for (mbox_proc_ptr child = cur_proc.child_ptr; child != NULL; child = child->sibling_ptr) {
+      children[i] = child->pid;
+      i++;
+   }
 
-if (!is_zapped()) {
-   psr_set(psr_get() & ~PSR_CURRENT_MODE);
-
-   int (*func)(char *) = cur_proc.start_func;
-   char arg[MAXARG];
-   strcpy(arg, cur_proc.start_arg);
-
-   result = (func)(arg);
-
-   terminate(result);
-}
-else {
-   terminate_real(0);
+    //go through all the children and zap
+   for (int i = 0; i < cur_proc.numChild; i++) {
+      zap(children[i]);
+   }
 }
 
-return result;
+rmChildList(cur_proc.parent_pid, cur_proc.pid);
+
+int my_location = cur_proc.pid % MAXPROC;
+phase3_ProcTable[my_location].pid = -1;
+phase3_ProcTable[my_location].parent_pid = -1;
+phase3_ProcTable[my_location].name = NULL;
+phase3_ProcTable[my_location].numChild = -1;
+phase3_ProcTable[my_location].parent_ptr = NULL;
+phase3_ProcTable[my_location].child_ptr = NULL;
+phase3_ProcTable[my_location].sibling_ptr = NULL;
+phase3_ProcTable[my_location].start_arg[0] = '\0';
+phase3_ProcTable[my_location].priority = -1;
+phase3_ProcTable[my_location].start_func = NULL;
+phase3_ProcTable[my_location].stack_size = -1;
+phase3_ProcTable[my_location].spawnbox = MboxCreate(1, MAXLINE);
+
+quit(status);
+
+numProcs--;
+
 
 } /* Terminate */
 
@@ -458,22 +551,156 @@ int getPID_real()
    Side Effects -  
    -------------------------------------------------------------------------------- */
 static void semcreate(sysargs *args_ptr) {
+   if (debugflag3) {
+      console("Process %d: semcreate\n", getpid());
+   }
 
+   long address = semcreate_real((long) args_ptr->arg1);
+
+   if (address == -1) {
+      args_ptr->arg4 = (void *) -1L;
+      args_ptr->arg1 = NULL;
+   } else {
+      args_ptr->arg4 = 0;
+      args_ptr->arg1 = (void *) address;
+   }
 } /* SemCreate */
 
 /* --------------------------------------------------------------------------------
-   Name - SemP
+   Name - SemCreate_real
+   Purpose - creates a user level semaphore
+   Parameters - value, *semaphore
+   Returns - arg1: semaphore handle to be used in subsequent semaphore system calls
+             arg4: -1 if initial value is negative or no more semaphores are 
+                    available, 0 otherwise
+   Side Effects -  
+   -------------------------------------------------------------------------------- */
+int semcreate_real(int semaphore) {
+   if (debugflag3) {
+      console("process %d: semcreate_real\n", getpid());
+   
+   }
+
+   if (numSems >= MAXSEMS) {
+      return -1;
+   }
+
+   int mutex_box = MboxCreate(1, 0);
+
+   if (mutex_box == -1) {
+      return -1;
+   }
+
+   int blocked_box = MboxCreate(0,0);
+
+   if (blocked_box == -1) {
+      return -1;
+   }
+
+   numSems++;
+   int sem = nextSems();
+   SemTable[semaphore].mutex_box = mutex_box;
+   SemTable[semaphore].blocked_box = blocked_box;
+   SemTable[semaphore].value = semaphore;
+   SemTable[semaphore].blocked = 0;
+
+   return sem;
+
+} /* SemCreate */
+
+
+/* --------------------------------------------------------------------------------
+   Name - SemP_real
    Purpose - performs a "P" operation on a semaphore
    Parameters - semaphore
    Returns - arg4: -1 if semaphore handle is invalid; 0 otherwise.
    Side Effects -  
    -------------------------------------------------------------------------------- */
 int  semp_real(int semaphore) {
+   if (debugflag3) {
+      console("process %d: semp_real\n", getpid());
+      
+   }
 
-} /* SemP */
+   if (SemTable[semaphore].mutex_box == -1) {
+      return -1;
+   }
+
+   int mutex_box = SemTable[semaphore].mutex_box;
+   int blocked_box = SemTable[semaphore].blocked_box;
+
+   MboxSend(mutex_box, NULL, 0);
+   if (debugflag3) {
+      console("Process %d: in critcal section\n", getpid());
+   }
+
+   int broke = 0;
+
+   while (SemTable[semaphore].value <= 0) {
+      SemTable[semaphore].blocked++;
+
+      MboxReceive(mutex_box, NULL, 0);
+
+      if (debugflag3) {
+         console("Process %d: Blocking on p\n", getpid());
+      }
+
+      MboxSend(blocked_box, NULL, 0);
+
+      if (is_zapped()) {
+         terminate_real(0);
+      }
+
+      if (SemTable[semaphore].mutex_box == -1) {
+         broke = 1;
+         break;
+      }
+
+      if (debugflag3) {
+         console("Process %d: Unblocked on P\n", getpid());
+      }
+
+      MboxSend(mutex_box, NULL, 0);
+      if (debugflag3) {
+         console("Process %d: in critical section\n", getpid());
+      }
+   }
+
+   if (!broke) {
+      SemTable[semaphore].value--;
+
+      MboxReceive(mutex_box, NULL, 0);
+   } else {
+      terminate_real(1);
+   }
+
+   return 0;
+
+
+} /* SemP_real */
 
 /* --------------------------------------------------------------------------------
-   Name - SemV
+   Name - Semp
+   Purpose - 
+   Parameters - args_ptr
+   Returns - 
+   Side Effects - 
+   -------------------------------------------------------------------------------- */
+static void semp(sysargs *args_ptr) {
+   if (debugflag3) {
+      console("Process %d: semp\n", getpid());
+   }
+
+   int sem_id = (long) args_ptr->arg1;
+
+   long result = semp_real(sem_id);
+
+   args_ptr->arg4 = (void *) result;
+
+} /* semp */
+
+/* --------------------------------------------------------------------------------
+   Name - Semv_real
    Purpose - performs a "V" operation on a semaphore
    Parameters - semaphore
    Returns - arg4: -1 if semaphore handle is invalid, 0 otherwise.
@@ -481,10 +708,57 @@ int  semp_real(int semaphore) {
    -------------------------------------------------------------------------------- */
 int  semv_real(int semaphore) {
 
-} /* SemV */
+   if (SemTable[semaphore].mutex_box == -1) {
+      return -1;
+   }
+
+   int mutex_box = SemTable[semaphore].mutex_box;
+   int blocked_box = SemTable[semaphore].blocked_box;
+
+   MboxSend(mutex_box, NULL, 0);
+
+   SemTable[semaphore].value++;
+
+   if (SemTable[semaphore].blocked > 0) {
+      if (debugflag3) {
+         console("process %d: freeing process blocked on P\n", getpid());
+      }
+      MboxReceive(blocked_box, NULL, 0);
+      SemTable[semaphore].blocked--;
+   }
+
+   MboxReceive(mutex_box, NULL, 0);
+
+   if (is_zapped()) {
+      terminate_real(0);
+   }
+
+   return 0;
+
+} /* Semv_real*/
 
 /* --------------------------------------------------------------------------------
-   Name - SemFree
+   Name - Semv
+   Purpose - performs a "V" operation on a semaphore
+   Parameters - semaphore
+   Returns - arg4: -1 if semaphore handle is invalid, 0 otherwise.
+   Side Effects -  if system is in usermode, print appropriate error and halt.
+   -------------------------------------------------------------------------------- */
+static void semv(sysargs *args_ptr) {
+   if (debugflag3) {
+      console("process %d: semv\n", getpid());
+   }
+
+   int sem_id = (long) args_ptr->arg1;
+
+   long result = semv_real(sem_id);
+
+   args_ptr->arg4 = (void *) result;
+
+} /* semv */
+
+/* --------------------------------------------------------------------------------
+   Name - SemFree_real
    Purpose - frees a semaphore
    Parameters - semaphore handle
    Returns - arg4: -1 if semaphore handle is invalid.
@@ -493,7 +767,64 @@ int  semv_real(int semaphore) {
    -------------------------------------------------------------------------------- */
 int  semfree_real(int semaphore) {
 
-} /* SemFree */
+   if (SemTable[semaphore].mutex_box == -1) {
+      return -1;
+   }
+
+   SemTable[semaphore].mutex_box = -1;
+
+
+   int result = 0;
+
+   if (SemTable[semaphore].blocked > 0) {
+      result = 1;
+
+      for (int i = 0; i < SemTable[semaphore].blocked; i++) {
+         MboxReceive(SemTable[semaphore].blocked_box, NULL, 0);
+      }
+   }
+
+   SemTable[semaphore].blocked_box = -1;
+   SemTable[semaphore].value = -1;
+   SemTable[semaphore].blocked = 0;
+
+   MboxRelease(SemTable[semaphore].mutex_box);
+   MboxRelease(SemTable[semaphore].blocked_box);
+
+   if (is_zapped()) {
+      terminate_real(0);
+
+   }
+
+   numSems--;
+
+   return result;
+
+} /* SemFree_real */
+
+/* --------------------------------------------------------------------------------
+   Name - Semfree
+   Purpose - frees a semaphore
+   Parameters - semaphore handle
+   Returns - arg4: -1 if semaphore handle is invalid.
+                    1 if there are processes blocked on the semaphore, 0 otherwise.
+   Side Effects -  terminate
+   -------------------------------------------------------------------------------- */
+static void semfree(sysargs *args_ptr) {
+   if (debugflag3) {
+      console("Process %d: semfree\n", getpid());
+   }
+
+   int semaphore = (long) args_ptr->arg1;
+
+   if (semaphore == -1) {
+      args_ptr->arg4 = (void *) -1L;
+   
+   } else {
+      long result = semfree_real(semaphore);
+      args_ptr->arg4 = (void *) result;
+   }
+} /* semfree */
 
 /* --------------------------------------------------------------------------------
    Name - init_proc
@@ -505,7 +836,6 @@ int  semfree_real(int semaphore) {
    void init_procs(int i)
    {
         phase3_ProcTable[i].pid = -1;
-        phase3_ProcTable[i].status = NULL;
         phase3_ProcTable[i].name = NULL;
         phase3_ProcTable[i].numChild = -1;
         phase3_ProcTable[i].parent_ptr = NULL;
@@ -529,8 +859,6 @@ int  semfree_real(int semaphore) {
    -------------------------------------------------------------------------------- */
 void init_sems(int i)
 {
-   SemTable[i].status = NULL;
-   SemTable[i].sid = i;
    SemTable[i].mutex_box = -1;
    SemTable[i].value = 0;
    SemTable[i].blocked = 0;
