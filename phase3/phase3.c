@@ -132,7 +132,7 @@ int start2(char *arg)
     }
     
 
-    return status;
+    return 0;
 
 } /* start2 */
 
